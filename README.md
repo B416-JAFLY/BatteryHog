@@ -1,3 +1,5 @@
+> **Internationalized fork:** English and Simplified Chinese are supported in the dashboard and native UI. See [简体中文说明](README.zh-CN.md) and the [localization guide](docs/localization.md). Build this fork from source to use these changes. The upstream downloads/Homebrew package linked below do not contain this fork's translations. Direct-build Sparkle updates are disabled to prevent upstream releases from overwriting them.
+
 <div align="center">
   <h1>Battery Hog</h1>
   <p><b>A native macOS app that shows what's draining your battery — and actually helps you fix it.</b></p>

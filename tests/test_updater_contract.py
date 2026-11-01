@@ -79,10 +79,8 @@ class UpdaterContractTests(unittest.TestCase):
         self.assertIs(self.plist.get("SUVerifyUpdateBeforeExtraction"), True)
         self.assertIs(self.plist.get("SURequireSignedFeed"), True)
         self.assertEqual(self.plist.get("SUScheduledCheckInterval"), 86400)
-        self.assertEqual(
-            self.plist.get("SUFeedURL"),
-            "https://github.com/luke-fairbanks/BatteryHog/releases/latest/download/appcast.xml",
-        )
+        # This fork must not replace itself with an upstream English release.
+        self.assertNotIn("SUFeedURL", self.plist)
         self.assertEqual(len(base64.b64decode(self.plist["SUPublicEDKey"], validate=True)), 32)
         self.assertEqual(self.plist.get("LSMinimumSystemVersion"), "11.0")
         self.assertNotIn("NSAppTransportSecurity", self.plist)
@@ -171,7 +169,7 @@ class UpdaterContractTests(unittest.TestCase):
         self.assertIn("resolvingSymlinksInPath", self.swift)
         self.assertRegex(
             self.swift,
-            r'if installMethod == "direct"\s*\{\s*updaterController = SPUStandardUpdaterController',
+            r'if installMethod == "direct", Bundle.main.object\(forInfoDictionaryKey: "SUFeedURL"\) != nil\s*\{\s*updaterController = SPUStandardUpdaterController',
         )
         self.assertIn("brew upgrade --cask luke-fairbanks/tap/battery-hog", self.swift)
 

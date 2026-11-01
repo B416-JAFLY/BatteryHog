@@ -2,43 +2,48 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-    <key>CFBundleName</key>
-    <string>Battery Hog</string>
-    <key>CFBundleDisplayName</key>
-    <string>Battery Hog</string>
-    <key>CFBundleIdentifier</key>
-    <string>com.lukefairbanks.batteryhog</string>
-    <key>CFBundlePackageType</key>
-    <string>APPL</string>
-    <key>CFBundleExecutable</key>
-    <string>BatteryHog</string>
-    <key>CFBundleIconFile</key>
-    <string>AppIcon</string>
-    <key>LSMinimumSystemVersion</key>
-    <string>11.0</string>
-    <key>NSHighResolutionCapable</key>
-    <true/>
-    <key>LSApplicationCategoryType</key>
-    <string>public.app-category.utilities</string>
-    <key>NSHumanReadableCopyright</key>
-    <string>Local utility. Runs entirely on your Mac.</string>
-    <key>SUFeedURL</key>
-    <string>https://github.com/luke-fairbanks/BatteryHog/releases/latest/download/appcast.xml</string>
-    <key>SUPublicEDKey</key>
-    <string>tyAOZBW4+ksQbBZsCxdDCeacAhXM32/JEsVN3TVbhUk=</string>
-    <key>SUEnableAutomaticChecks</key>
-    <false/>
-    <key>SUScheduledCheckInterval</key>
-    <integer>86400</integer>
-    <key>SUAutomaticallyUpdate</key>
-    <false/>
-    <key>SUAllowsAutomaticUpdates</key>
-    <false/>
-    <key>SUEnableSystemProfiling</key>
-    <false/>
-    <key>SUVerifyUpdateBeforeExtraction</key>
-    <true/>
-    <key>SURequireSignedFeed</key>
-    <true/>
+	<key>CFBundleName</key>
+	<string>Battery Hog</string>
+	<key>CFBundleDisplayName</key>
+	<string>Battery Hog</string>
+	<key>CFBundleIdentifier</key>
+	<string>com.lukefairbanks.batteryhog</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleExecutable</key>
+	<string>BatteryHog</string>
+	<key>CFBundleIconFile</key>
+	<string>AppIcon</string>
+	<key>LSMinimumSystemVersion</key>
+	<string>11.0</string>
+	<key>NSHighResolutionCapable</key>
+	<true/>
+	<key>LSApplicationCategoryType</key>
+	<string>public.app-category.utilities</string>
+	<key>NSHumanReadableCopyright</key>
+	<string>Local utility. Runs entirely on your Mac.</string>
+	<key>SUPublicEDKey</key>
+	<string>tyAOZBW4+ksQbBZsCxdDCeacAhXM32/JEsVN3TVbhUk=</string>
+	<key>SUEnableAutomaticChecks</key>
+	<false/>
+	<key>SUScheduledCheckInterval</key>
+	<integer>86400</integer>
+	<key>SUAutomaticallyUpdate</key>
+	<false/>
+	<key>SUAllowsAutomaticUpdates</key>
+	<false/>
+	<key>SUEnableSystemProfiling</key>
+	<false/>
+	<key>SUVerifyUpdateBeforeExtraction</key>
+	<true/>
+	<key>SURequireSignedFeed</key>
+	<true/>
+	<key>CFBundleDevelopmentRegion</key>
+	<string>en</string>
+	<key>CFBundleLocalizations</key>
+	<array>
+		<string>en</string>
+		<string>zh-Hans</string>
+	</array>
 </dict>
 </plist>
