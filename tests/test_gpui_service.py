@@ -57,12 +57,20 @@ class GPUIServiceTests(unittest.TestCase):
         self.fail('service did not respond to a short pipe request')
 
     def test_settings_roundtrip_and_persistence(self):
-        response = self.request('POST', '/api/settings', {'low_threshold': 35, 'dev': {'slots': 3}})
+        response = self.request('POST', '/api/settings', {
+            'low_threshold': 35, 'dev': {'slots': 3}, 'power_refresh_seconds': 2
+        })
         self.assertEqual(response['status'], 200)
         response = self.request('GET', '/api/settings')
         self.assertEqual(response['body']['low_threshold'], 35)
         self.assertEqual(response['body']['dev']['slots'], 3)
-        self.assertEqual(json.loads((Path(self.directory.name)/'settings.json').read_text())['low_threshold'], 35)
+        self.assertEqual(response['body']['power_refresh_seconds'], 2)
+        # Unsupported intervals do not modify the chosen value.
+        self.assertEqual(self.request('POST', '/api/settings', {'power_refresh_seconds': 3})['status'], 200)
+        self.assertEqual(self.request('GET', '/api/settings')['body']['power_refresh_seconds'], 2)
+        saved = json.loads((Path(self.directory.name)/'settings.json').read_text())
+        self.assertEqual(saved['low_threshold'], 35)
+        self.assertEqual(saved['power_refresh_seconds'], 2)
 
     def test_history_ranges_and_route_validation(self):
         for period, buckets in [('24h', 96), ('10d', 80)]:
@@ -71,6 +79,23 @@ class GPUIServiceTests(unittest.TestCase):
             self.assertEqual(len(response['body']['bins']), buckets)
             self.assertGreater(response['body']['end'], response['body']['start'])
         self.assertEqual(self.request('POST', '/api/untrusted')['status'], 400)
+
+    def test_automatic_power_events(self):
+        deadline = time.monotonic() + 10
+        while time.monotonic() < deadline:
+            while b'\n' in self.pending:
+                line, self.pending = self.pending.split(b'\n', 1)
+                event = json.loads(line)
+                if event.get('event') == 'power':
+                    self.assertIn('power', event['body'])
+                    self.assertIn('battery', event['body'])
+                    self.assertGreater(event['body']['ts'], 0)
+                    return
+            if self.selector.select(.5):
+                chunk = os.read(self.process.stdout.fileno(), 65536)
+                self.assertTrue(chunk, 'service exited before sending power samples')
+                self.pending += chunk
+        self.fail('no automatic power event within 10 seconds')
 
     def test_pipe_eof_terminates_companion(self):
         self.request('GET', '/api/settings')

@@ -53,8 +53,10 @@ final class GPUIService: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
     var statusItem: NSStatusItem!
     var pollTimer: Timer?
+    private var powerTimer: Timer?
     var lastLowPower: Bool? = nil
     private var statsPollInFlight = false
+    private var powerPollInFlight = false
     private var heatHistory: [HeatStatsSample] = []
     private var currentThermalState: ProcessInfo.ThermalState = .nominal
     private var heatElevatedAt: Date?
@@ -82,6 +84,7 @@ final class GPUIService: NSObject, NSApplicationDelegate, UNUserNotificationCent
         startInputLoop()
         emit(["event": "ready", "languages": Localization.preferredLanguages])
         startStatsPolling()
+        configurePowerPolling()
     }
 
     func buildStatusItem() {
@@ -106,6 +109,26 @@ final class GPUIService: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
         }
         pollStats()
+    }
+
+    private func configurePowerPolling() {
+        powerTimer?.invalidate()
+        powerTimer = Timer.scheduledTimer(withTimeInterval: backend.powerRefreshSeconds(),
+                                          repeats: true) { [weak self] _ in
+            self?.pollPower()
+        }
+    }
+
+    private func pollPower() {
+        guard !powerPollInFlight else { return }
+        powerPollInFlight = true
+        backend.livePower { [weak self] sample in
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.powerPollInFlight = false
+                self.emit(["event": "power", "body": sample])
+            }
+        }
     }
 
     func pollStats() {
@@ -693,12 +716,20 @@ final class GPUIService: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
         backend.request(method: method, path: path, body: body) { [weak self] response in
             self?.emit(["event": "response", "id": id, "path": path, "status": response.status, "body": response.body])
-            if method == "POST" { DispatchQueue.main.async { self?.pollStats() } }
+            if method == "POST" {
+                DispatchQueue.main.async {
+                    if path == "/api/settings" && response.status < 400 {
+                        self?.configurePowerPolling()
+                    }
+                    self?.pollStats()
+                }
+            }
         }
     }
 
     func applicationWillTerminate(_ notification: Notification) {
         pollTimer?.invalidate()
+        powerTimer?.invalidate()
         heatEvaluationWorkItem?.cancel()
         NotificationCenter.default.removeObserver(self)
         backend?.stop()

@@ -35,6 +35,7 @@ final class BatteryHogSettingsStore {
     static var defaults: [String: Any] {
         [
             "alerts": false,
+            "power_refresh_seconds": 1,
             "low_threshold": 20,
             "menubar": ["percent": true, "watts": true, "time": false,
                         "hog": false, "dev": false],
@@ -62,6 +63,10 @@ final class BatteryHogSettingsStore {
         lock.withLock { () -> (value: [String: Any], persisted: Bool) in
             var candidate = settings
             if let alerts = patch["alerts"] as? Bool { candidate["alerts"] = alerts }
+            if let seconds = Self.integer(patch["power_refresh_seconds"]),
+               [1, 2, 5, 10].contains(seconds) {
+                candidate["power_refresh_seconds"] = seconds
+            }
             if let threshold = Self.integer(patch["low_threshold"]) {
                 candidate["low_threshold"] = min(95, max(5, threshold))
             }
@@ -110,6 +115,10 @@ final class BatteryHogSettingsStore {
         var result = defaults
         guard let raw else { return result }
         if let value = raw["alerts"] as? Bool { result["alerts"] = value }
+        if let seconds = integer(raw["power_refresh_seconds"]),
+           [1, 2, 5, 10].contains(seconds) {
+            result["power_refresh_seconds"] = seconds
+        }
         if let value = integer(raw["low_threshold"]) {
             result["low_threshold"] = min(95, max(5, value))
         }

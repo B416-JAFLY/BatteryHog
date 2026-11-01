@@ -69,6 +69,9 @@ pub struct BatteryHog {
     pending: HashSet<u64>,
     last_sample: Option<Instant>,
     last_history: Instant,
+    last_reconnect: Instant,
+    animation_started: Instant,
+    animate_power: bool,
     power: Vec<(f64, Option<f32>)>,
     message: String,
     disconnected: bool,
@@ -90,16 +93,19 @@ impl BatteryHog {
             pending: HashSet::new(),
             last_sample: None,
             last_history: Instant::now(),
+            last_reconnect: Instant::now(),
+            animation_started: Instant::now(),
+            animate_power: false,
             power: vec![],
+            disconnected: !message.is_empty(),
             message,
-            disconnected: false,
         };
         if let Ok(language) = std::env::var("BATTERY_HOG_LANGUAGE") {
             view.locale.language = crate::locale::language(&[language]).into();
         }
         cx.spawn(async move |view, cx| {
             loop {
-                smol::Timer::after(Duration::from_millis(120)).await;
+                smol::Timer::after(Duration::from_millis(140)).await;
                 if view
                     .update(cx, |view, cx| {
                         let events: Vec<_> = view
@@ -119,7 +125,19 @@ impl BatteryHog {
                         {
                             view.load_history();
                         }
-                        if changed {
+                        if view.disconnected
+                            && view.last_reconnect.elapsed() >= Duration::from_secs(5)
+                        {
+                            view.last_reconnect = Instant::now();
+                            if let Ok(bridge) = Bridge::start() {
+                                view.bridge = Some(bridge);
+                                view.disconnected = false;
+                                view.message.clear();
+                            }
+                        }
+                        // Only animate on the power-flow page; other pages stay idle
+                        // until new samples or user interaction arrive.
+                        if changed || view.animate_power {
                             cx.notify();
                         }
                     })
@@ -159,13 +177,15 @@ impl BatteryHog {
                 self.stats = event["body"].clone();
                 self.last_sample = Some(Instant::now());
                 self.disconnected = false;
-                let timestamp = n(&self.stats["ts"]);
-                if self.power.last().map(|s| s.0) != Some(timestamp) {
-                    self.power.push((
-                        timestamp,
-                        num(&self.stats["power"]["watts"]).map(|v| v as f32),
-                    ));
-                    self.power.retain(|(ts, _)| timestamp - *ts <= 90.);
+                self.record_power_sample();
+            }
+            "power" => {
+                if !self.stats.is_null() {
+                    self.stats["power"] = event["body"]["power"].clone();
+                    self.stats["battery"] = event["body"]["battery"].clone();
+                    self.stats["ts"] = event["body"]["ts"].clone();
+                    self.last_sample = Some(Instant::now());
+                    self.record_power_sample();
                 }
             }
             "open" => {
@@ -182,7 +202,8 @@ impl BatteryHog {
             "disconnected" => {
                 self.disconnected = true;
                 self.pending.clear();
-                self.message = self.t("Monitor disconnected. Press Refresh to reconnect.");
+                self.bridge = None;
+                self.message = self.t("Monitor disconnected. Reconnecting automatically…");
             }
             "response" => {
                 let id = event["id"].as_u64().unwrap_or(0);
@@ -199,6 +220,7 @@ impl BatteryHog {
                 } else if event["path"] == "/api/stats" {
                     self.stats = event["body"].clone();
                     self.last_sample = Some(Instant::now());
+                    self.record_power_sample();
                 } else if was_pending {
                     self.message = if event["body"]["cancelled"] == true {
                         String::new()
@@ -213,6 +235,17 @@ impl BatteryHog {
             _ => {}
         }
     }
+    fn record_power_sample(&mut self) {
+        let timestamp = n(&self.stats["ts"]);
+        if timestamp <= 0. || self.power.last().map(|s| s.0) == Some(timestamp) {
+            return;
+        }
+        let flow = flow_state(&self.stats);
+        self.power
+            .push((timestamp, flow.battery_watts.map(|v| v as f32)));
+        self.power.retain(|(ts, _)| timestamp - *ts <= 90.);
+    }
+
     fn request(&mut self, method: &str, path: &str, body: Value) -> u64 {
         if let Some(bridge) = &mut self.bridge {
             match bridge.request(method, path, body) {
@@ -398,57 +431,74 @@ impl BatteryHog {
         let b = &self.stats["battery"];
         let d = &self.stats["dev_summary"];
         let procs = sorted_processes(&self.stats, "score");
-        let state = match b["state"].as_str().unwrap_or("") {
-            "charging" => "Charging",
-            "charged" => "Fully charged",
-            "ac" => "Plugged in",
-            _ => "On battery",
-        };
+        let flow = flow_state(&self.stats);
         let pct = num(&b["percent"])
             .map(|n| format!("{n:.0}%"))
             .unwrap_or_else(|| self.t("No battery"));
+        let state = if flow.charging {
+            "Adapter powering Mac and charging battery"
+        } else if flow.on_ac && flow.discharging {
+            "Adapter connected; battery also discharging"
+        } else if flow.on_ac {
+            "Adapter powering Mac"
+        } else {
+            "Battery powering Mac"
+        };
+        let watts = flow
+            .battery_watts
+            .map(|w| format!("{w:0.1} W"))
+            .unwrap_or_else(|| "—".into());
+        let battery_status = if flow.charging {
+            self.t("Battery charging power")
+        } else if flow.discharging {
+            self.t("Battery discharge power")
+        } else {
+            self.t("Battery not charging")
+        };
         let hero = div()
-            .flex()
-            .flex_col()
-            .gap_5()
-            .p_6()
+            .flex().flex_col().gap_4().p_6()
             .rounded_xl()
             .bg(rgb(0x17241c))
             .text_color(rgb(0xeaf3dc))
             .flex_1()
+            .min_w(px(410.))
+            .child(div().flex().justify_between().items_center().gap_3()
+                .child(div().text_sm().text_color(rgb(ACCENT)).child(self.t("Power flow")))
+                .child(div().text_sm().child(pct)))
+            .child(div().text_xl().font_weight(FontWeight::BOLD).child(self.t(state)))
             .child(
-                div()
-                    .text_sm()
-                    .text_color(rgb(ACCENT))
-                    .child(self.t("Energy forecast")),
+                div().flex().items_center().gap_2().w_full()
+                    .child(div().w(px(108.)).flex_shrink_0().h(px(146.))
+                        .flex().flex_col().justify_between()
+                        .child(div().flex().flex_col().gap_1()
+                            .child(div().font_weight(FontWeight::SEMIBOLD).child(self.t("Power adapter")))
+                            .child(div().text_sm().text_color(rgb(0xbed0b3)).child(
+                                self.t(if flow.on_ac { "Connected" } else { "Disconnected" }))))
+                        .child(div().flex().flex_col().gap_1()
+                            .child(div().font_weight(FontWeight::SEMIBOLD).child(self.t("Battery")))
+                            .child(div().text_sm().text_color(rgb(0xb8ed45)).child(
+                                if flow.charging || flow.discharging { watts.clone() }
+                                else { self.t("Not charging") }))))
+                    .child(flow_chart(flow,
+                        self.animation_started.elapsed().as_secs_f32() * 0.24))
+                    .child(div().w(px(94.)).flex_shrink_0()
+                        .flex().flex_col().gap_1()
+                        .child(div().font_weight(FontWeight::SEMIBOLD).child(self.t("Mac system")))
+                        .child(div().text_sm().text_color(rgb(0xbed0b3))
+                            .child(self.t("Power supplied"))))
             )
-            .child(
-                div()
-                    .flex()
-                    .justify_between()
-                    .items_center()
-                    .gap_4()
-                    .child(
-                        div().text_3xl().font_weight(FontWeight::BOLD).child(
-                            b["time"]
-                                .as_str()
-                                .map(str::to_owned)
-                                .unwrap_or_else(|| self.t(state)),
-                        ),
-                    )
-                    .child(div().text_3xl().child(pct.clone())),
-            )
-            .child(self.t(state))
-            .child(metric(&self.stats["power"]["watts"], " W"))
-            .child(
-                div().h_2().rounded_full().bg(rgb(0x394b38)).child(
-                    div()
-                        .h_2()
-                        .rounded_full()
-                        .bg(rgb(ACCENT))
-                        .w(relative((n(&b["percent"]) / 100.).clamp(0., 1.) as f32)),
-                ),
-            );
+            .child(div().flex().flex_col().gap_1()
+                .child(div().text_sm().text_color(rgb(0xeaf3dc)).child(
+                    if flow.charging || flow.discharging {
+                        format!("{} · {}", battery_status, watts)
+                    } else {
+                        battery_status
+                    }))
+                .child(div().text_xs().text_color(rgb(0xbed0b3))
+                    .child(self.t("Only battery-side watts are measurable; adapter/system power is not reported."))))
+            .child(div().h_2().rounded_full().bg(rgb(0x394b38)).child(
+                div().h_2().rounded_full().bg(rgb(ACCENT))
+                    .w(relative((n(&b["percent"]) / 100.).clamp(0., 1.) as f32))));
         let mut cause = self.card("What is driving it", t).flex_1();
         if n(&d["projects"]) > 0. {
             cause = cause
@@ -510,15 +560,20 @@ impl BatteryHog {
             .flex()
             .flex_col()
             .gap_4()
-            .child(div().flex().gap_4().child(hero).child(cause))
             .child(
-                self.card("Power current · 90 seconds", t)
+                div()
+                    .flex()
+                    .flex_wrap()
+                    .gap_4()
+                    .child(hero)
+                    .child(cause.min_w(px(260.))),
+            )
+            .child(
+                self.card("Battery power · 90 seconds", t)
                     .child(chart(trace, false, positions))
-                    .child(
-                        div().text_sm().text_color(rgb(t.muted)).child(
-                            self.t("Live system-wide watts; samples arrive every 5 seconds."),
-                        ),
-                    ),
+                    .child(div().text_sm().text_color(rgb(t.muted)).child(self.t(
+                        "Battery-side charge/discharge watts; sampling interval is configurable.",
+                    ))),
             )
             .child(
                 div()
@@ -1026,7 +1081,7 @@ impl BatteryHog {
                 self.tile(
                     "Battery life on a charge",
                     runtime
-                        .map(|v| self.f("{count}h", &[("count", format!("{v:.1}"))]))
+                        .map(|v| self.f("{count}h", &[("count", format!("{v:0.1}"))]))
                         .unwrap_or_else(|| "—".into()),
                     self.t(if runtime.is_none() {
                         "Not enough data yet"
@@ -1044,7 +1099,7 @@ impl BatteryHog {
                     .child(
                         self.tile(
                             "Drain rate",
-                            rate.map(|r| self.f("{rate}%/h", &[("rate", format!("{r:.1}"))]))
+                            rate.map(|r| self.f("{rate}%/h", &[("rate", format!("{r:0.1}"))]))
                                 .unwrap_or_else(|| "—".into()),
                             self.t("On battery"),
                             t,
@@ -1142,7 +1197,15 @@ impl BatteryHog {
                     )
                 })),
         );
-        div().flex().flex_col().gap_4().child(menu).child(alerts).child(self.card("Software updates",t).child(self.t("Updates disabled for this fork")).child(self.t("Build new versions from B416-JAFLY/BatteryHog. Upstream updates would replace the translations.")))
+        let selected = num(&settings["power_refresh_seconds"]).unwrap_or(1.) as u32;
+        let refresh = self.card("Power refresh interval", t)
+            .child(self.t("Battery and power-flow readings update automatically. Detailed app and system metrics use a slower cycle."))
+            .child(div().flex().flex_wrap().gap_2().children([1, 2, 5, 10].into_iter().map(|v| {
+                self.button(format!("refresh-{v}"),
+                    format!("{}{v} {}", if selected == v { "✓ " } else { "" }, self.t("seconds")),
+                    Action::Post("/api/settings".into(), json!({"power_refresh_seconds": v})), cx)
+            })));
+        div().flex().flex_col().gap_4().child(refresh).child(menu).child(alerts).child(self.card("Software updates",t).child(self.t("Updates disabled for this fork")).child(self.t("Build new versions from B416-JAFLY/BatteryHog. Upstream updates would replace the translations.")))
     }
 }
 fn quit_action(p: &Value) -> Action {
@@ -1150,6 +1213,115 @@ fn quit_action(p: &Value) -> Action {
         "/api/kill".into(),
         json!({"name":p["name"],"path":p["path"],"bundle":p["bundle"],"pids":p["pids"]}),
     )
+}
+
+// GPUI-native power-flow diagram: active routes illuminate and moving segments
+// show the direction of energy movement. The diagram never invents adapter watts.
+fn flow_path(
+    window: &mut Window,
+    origin: Point<Pixels>,
+    width: f32,
+    height: f32,
+    vertices: &[(f32, f32)],
+    active: bool,
+    phase: f32,
+    color: u32,
+) {
+    let p = |v: (f32, f32)| point(origin.x + px(width * v.0), origin.y + px(height * v.1));
+    let mut outline = PathBuilder::stroke(px(if active { 3.5 } else { 2. }));
+    for (i, vertex) in vertices.iter().enumerate() {
+        if i == 0 {
+            outline.move_to(p(*vertex));
+        } else {
+            outline.line_to(p(*vertex));
+        }
+    }
+    if let Ok(path) = outline.build() {
+        window.paint_path(path, rgb(if active { color } else { 0x3b5141 }));
+    }
+    if !active {
+        return;
+    }
+    let lengths: Vec<f32> = vertices
+        .windows(2)
+        .map(|pair| {
+            let dx = (pair[1].0 - pair[0].0) * width;
+            let dy = (pair[1].1 - pair[0].1) * height;
+            (dx * dx + dy * dy).sqrt()
+        })
+        .collect();
+    let total: f32 = lengths.iter().sum();
+    if total <= 0. {
+        return;
+    }
+    for i in 0..3 {
+        let mut remaining = (phase + i as f32 / 3.).rem_euclid(1.) * total;
+        for (j, distance) in lengths.iter().enumerate() {
+            if remaining <= *distance || j + 1 == lengths.len() {
+                let amount = if *distance > 0. {
+                    (remaining / distance).clamp(0., 1.)
+                } else {
+                    0.
+                };
+                let a = vertices[j];
+                let b = vertices[j + 1];
+                let v = (a.0 + (b.0 - a.0) * amount, a.1 + (b.1 - a.1) * amount);
+                let mut marker = PathBuilder::stroke(px(7.));
+                marker.move_to(p(v));
+                marker.line_to(point(p(v).x + px(1.), p(v).y));
+                if let Ok(path) = marker.build() {
+                    window.paint_path(path, rgb(0xf4ffe3));
+                }
+                break;
+            }
+            remaining -= *distance;
+        }
+    }
+}
+fn flow_chart(flow: FlowState, phase: f32) -> impl IntoElement {
+    canvas(
+        |_, _, _| (),
+        move |bounds, _, window, _| {
+            let w: f32 = bounds.size.width.into();
+            let h: f32 = bounds.size.height.into();
+            // Adapter is the upper input and battery the lower one.
+            // Both sources can feed the system; when charging, a branch
+            // moves from the adapter back towards the battery.
+            flow_path(
+                window,
+                bounds.origin,
+                w,
+                h,
+                &[(0., 0.23), (0.30, 0.23), (0.68, 0.5), (1., 0.5)],
+                flow.on_ac,
+                phase,
+                0x88cfff,
+            );
+            flow_path(
+                window,
+                bounds.origin,
+                w,
+                h,
+                &[(0., 0.77), (0.30, 0.77), (0.68, 0.5), (1., 0.5)],
+                flow.discharging,
+                phase,
+                0xb8ed45,
+            );
+            flow_path(
+                window,
+                bounds.origin,
+                w,
+                h,
+                &[(0.30, 0.23), (0.30, 0.77), (0., 0.77)],
+                flow.charging,
+                phase,
+                0x88cfff,
+            );
+        },
+    )
+    .flex_1()
+    .min_w(px(80.))
+    .h(px(150.))
 }
 
 fn chart(
@@ -1223,6 +1395,7 @@ fn chart(
 impl Render for BatteryHog {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let t = theme(window);
+        self.animate_power = window.is_window_active() && self.room == 0 && !self.stats.is_null();
         let mut nav = div()
             .w(px(205.))
             .flex_shrink_0()
@@ -1266,18 +1439,9 @@ impl Render for BatteryHog {
                     })),
             );
         }
-        nav =
-            nav.child(div().flex_1())
-                .child(div().text_sm().text_color(rgb(0xb7c9a8)).child(self.t(
-                    if self.disconnected {
-                        "connection lost"
-                    } else if self.last_sample.is_some() {
-                        "Live"
-                    } else {
-                        "connecting…"
-                    },
-                )))
-                .child(self.button("refresh", self.t("Refresh"), Action::Refresh, cx));
+        // No manual Refresh control: the monitor samples automatically and
+        // reconnects without moving the navigation or changing its height.
+        nav = nav.child(div().flex_1());
         let content = if self.stats.is_null() {
             div()
                 .p_6()

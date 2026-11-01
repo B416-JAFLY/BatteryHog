@@ -29,6 +29,38 @@ pub fn metric(value: &Value, unit: &str) -> String {
         .map(|n| format!("{n:.1}{unit}"))
         .unwrap_or_else(|| "—".into())
 }
+/// Battery current is measurable; adapter-to-system watts are not available
+/// from the AppleSmartBattery sensor. Never invent an adapter power total.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct FlowState {
+    pub on_ac: bool,
+    pub charging: bool,
+    pub discharging: bool,
+    pub battery_watts: Option<f64>,
+}
+pub fn flow_state(stats: &Value) -> FlowState {
+    let battery = &stats["battery"];
+    let power = &stats["power"];
+    let on_ac = power["on_ac"]
+        .as_bool()
+        .or_else(|| battery["on_ac"].as_bool())
+        .unwrap_or(false);
+    let state = battery["state"].as_str().unwrap_or("");
+    let charging = power["charging"] == true || state == "charging";
+    let discharging =
+        !charging && (!on_ac || state == "discharging" || power["direction"] == "discharging");
+    FlowState {
+        on_ac,
+        charging,
+        discharging,
+        battery_watts: if charging || discharging {
+            num(&power["watts"])
+        } else {
+            None
+        },
+    }
+}
+
 /// Keep null buckets as gaps and index all buckets against the complete time domain.
 pub fn history_points(history: &Value) -> Vec<Option<(f32, bool)>> {
     list(&history["bins"])
@@ -57,6 +89,27 @@ mod tests {
         assert_eq!(p[0], None);
         assert_eq!(p[1], Some((100., true)));
         assert_eq!(p[3], Some((30., false)));
+    }
+    #[test]
+    fn source_flow_never_conflates_battery_with_adapter_watts() {
+        let charging = flow_state(&json!({
+            "battery": {"state":"charging","on_ac":true},
+            "power": {"watts":21.8,"on_ac":true,"charging":true}
+        }));
+        assert!(charging.on_ac && charging.charging && !charging.discharging);
+        assert_eq!(charging.battery_watts, Some(21.8));
+        let resting = flow_state(&json!({
+            "battery": {"state":"ac","on_ac":true},
+            "power": {"watts":0.0,"on_ac":true,"charging":false}
+        }));
+        assert!(resting.on_ac && !resting.charging && !resting.discharging);
+        assert_eq!(resting.battery_watts, None);
+        let battery = flow_state(&json!({
+            "battery": {"state":"discharging","on_ac":false},
+            "power": {"watts":12.7,"on_ac":false}
+        }));
+        assert!(battery.discharging && !battery.on_ac);
+        assert_eq!(battery.battery_watts, Some(12.7));
     }
     #[test]
     fn missing_metrics_and_sort() {

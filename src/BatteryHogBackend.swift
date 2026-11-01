@@ -183,6 +183,25 @@ final class BatteryHogBackend {
         }
     }
 
+    // Lightweight battery/power sampling avoids re-running process, memory, and
+    // sleep collectors each second. Full stats retain their existing cache.
+    func livePower(completion: @escaping ([String: Any]) -> Void) {
+        workQueue.async { [weak self] in
+            guard let self else { return }
+            completion([
+                "battery": self.battery(),
+                "power": self.power(),
+                "ts": Int(Date().timeIntervalSince1970)
+            ])
+        }
+    }
+
+    func powerRefreshSeconds() -> TimeInterval {
+        let settings = settingsStore.snapshot()
+        let seconds = (settings["power_refresh_seconds"] as? NSNumber)?.intValue ?? 1
+        return TimeInterval([1, 2, 5, 10].contains(seconds) ? seconds : 1)
+    }
+
     func stats(completion: @escaping ([String: Any]) -> Void) {
         workQueue.async { [weak self] in
             guard let self else { return }
@@ -452,7 +471,7 @@ final class BatteryHogBackend {
     private func batteryIORegistry() -> String {
         batteryIOLock.withLock {
             if let date = batteryIODate, let cache = batteryIOCache,
-               Date().timeIntervalSince(date) < 4 { return cache }
+               Date().timeIntervalSince(date) < 0.8 { return cache }
             let output = SystemCommand.output("/usr/sbin/ioreg",
                                                ["-rn", "AppleSmartBattery"], timeout: 6)
             batteryIODate = Date()
