@@ -457,5 +457,17 @@
   "No task energy data": "No task energy data",
   "Measuring…": "Measuring…",
   "Measure energy": "Measure energy",
-  "{rate}%/h": "{rate}%/h"
+  "{rate}%/h": "{rate}%/h",
+  "On": "On",
+  "Off": "Off",
+  "Refresh": "Refresh",
+  "Saving…": "Saving…",
+  "Monitor disconnected. Press Refresh to reconnect.": "Monitor disconnected. Press Refresh to reconnect.",
+  "Mute": "Mute",
+  "Running": "Running",
+  "Queued": "Queued",
+  "24 hours ago": "24 hours ago",
+  "10 days ago": "10 days ago",
+  "macOS may ask for your password.": "macOS may ask for your password.",
+  "Live system-wide watts; samples arrive every 5 seconds.": "Live system-wide watts; samples arrive every 5 seconds."
 }

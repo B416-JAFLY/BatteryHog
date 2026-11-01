@@ -20,3 +20,15 @@ jobs:
       - run: bash tests/run_localization_tests.sh
       - run: bash tests/run_native_tests.sh
       - run: SKIP_DMG=1 BUNDLE_ID=com.b416jafly.batteryhog.preview bash src/package.sh
+
+  gpui:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: rustup toolchain install stable --profile minimal --component rustfmt
+      - run: cargo fmt --manifest-path gpui/Cargo.toml --check
+      - run: cargo test --locked --manifest-path gpui/Cargo.toml
+      - run: PROFILE=dev BUNDLE_ID=com.b416jafly.batteryhog.gpui.preview bash src/package_gpui.sh
+      - name: Test the packaged pipe bridge
+        run: |
+          BATTERY_HOG_TEST_SERVICE="$PWD/dist/gpui/Battery Hog GPUI.app/Contents/MacOS/batteryhog-service" python3 -m unittest discover -s tests -p test_gpui_service.py

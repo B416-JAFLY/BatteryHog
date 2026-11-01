@@ -1,0 +1,17 @@
+[package]
+name = "batteryhog-gpui"
+version = "1.4.0"
+edition = "2024"
+license = "MIT"
+publish = false
+
+[dependencies]
+gpui = { version = "=0.2.2", default-features = false, features = ["font-kit", "runtime_shaders"] }
+serde_json = "1"
+smol = "2"
+chrono = "0.4"
+
+[profile.release]
+opt-level = 2
+lto = "thin"
+strip = "debuginfo"

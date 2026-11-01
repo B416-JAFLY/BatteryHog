@@ -21,3 +21,6 @@ dist/
 
 # dashboard test dependencies
 node_modules/
+
+# GPUI Rust build outputs
+gpui/target/
