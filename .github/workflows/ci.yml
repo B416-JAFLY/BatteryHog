@@ -31,4 +31,4 @@ jobs:
       - run: PROFILE=dev BUNDLE_ID=com.b416jafly.batteryhog.gpui.preview bash src/package_gpui.sh
       - name: Test the packaged pipe bridge
         run: |
-          BATTERY_HOG_TEST_SERVICE="$PWD/dist/gpui/Battery Hog GPUI.app/Contents/MacOS/batteryhog-service" python3 -m unittest discover -s tests -p test_gpui_service.py
+          BATTERY_HOG_TEST_SERVICE="$PWD/dist/gpui/Battery Hog GPUI.app/Contents/Helpers/BatteryHogService.app/Contents/MacOS/batteryhog-service" python3 -m unittest discover -s tests -p test_gpui_service.py

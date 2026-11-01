@@ -18,8 +18,22 @@ impl Bridge {
         let executable = std::env::current_exe().map_err(|e| e.to_string())?;
         let service = std::env::var_os("BATTERY_HOG_SERVICE")
             .map(PathBuf::from)
-            .unwrap_or_else(|| executable.with_file_name("batteryhog-service"));
+            .unwrap_or_else(|| {
+                executable
+                    .parent()
+                    .unwrap()
+                    .parent()
+                    .unwrap()
+                    .join("Helpers/BatteryHogService.app/Contents/MacOS/batteryhog-service")
+            });
         let mut command = Command::new(service);
+        if let Some(bundle) = executable
+            .parent()
+            .and_then(|p| p.parent())
+            .and_then(|p| p.parent())
+        {
+            command.env("BATTERY_HOG_APP_BUNDLE", bundle);
+        }
         if let Ok(lang) = std::env::var("BATTERY_HOG_LANGUAGE") {
             let lang = crate::locale::language(&[lang]);
             command.args(["-AppleLanguages", &format!("({lang})")]);

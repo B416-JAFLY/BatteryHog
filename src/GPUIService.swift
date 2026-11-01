@@ -45,6 +45,12 @@ final class GPUIService: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private let heatCooldown: TimeInterval = 15 * 60
 
     private var backend: BatteryHogBackend!
+    private var hostBundle: Bundle {
+        ProcessInfo.processInfo.environment["BATTERY_HOG_APP_BUNDLE"].flatMap { Bundle(path: $0) } ?? .main
+    }
+    private var appDefaults: UserDefaults {
+        hostBundle.bundleIdentifier.flatMap { UserDefaults(suiteName: $0) } ?? .standard
+    }
     var statusItem: NSStatusItem!
     var pollTimer: Timer?
     var lastLowPower: Bool? = nil
@@ -71,10 +77,10 @@ final class GPUIService: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
         applyThermalState(currentThermalState, at: Date())
 
-        backend = BatteryHogBackend(configuration: .live())
+        backend = BatteryHogBackend(configuration: .live(bundle: hostBundle))
         buildStatusItem()
         startInputLoop()
-        emit(["event": "ready", "languages": Locale.preferredLanguages])
+        emit(["event": "ready", "languages": Localization.preferredLanguages])
         startStatsPolling()
     }
 
@@ -270,7 +276,7 @@ final class GPUIService: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private var isPreviewBuild: Bool {
-        Bundle.main.bundleIdentifier?.hasSuffix(".preview") == true
+        hostBundle.bundleIdentifier?.hasSuffix(".preview") == true
     }
 
     /// Preview-only deterministic hooks for testing without heating a Mac:
@@ -319,7 +325,7 @@ final class GPUIService: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // A dry run intentionally avoids a system prompt; all normal enabled
         // Heat Watch sessions request permission exactly once per bundle.
         if heatDebugDryRun { return }
-        let defaults = UserDefaults.standard
+        let defaults = appDefaults
         guard !defaults.bool(forKey: heatPermissionRequestedKey) else { return }
         defaults.set(true, forKey: heatPermissionRequestedKey)
         UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) {
@@ -384,7 +390,7 @@ final class GPUIService: NSObject, NSApplicationDelegate, UNUserNotificationCent
         heatEvaluationWorkItem?.cancel()
         heatEvaluationWorkItem = nil
 
-        let defaults = UserDefaults.standard
+        let defaults = appDefaults
         let snoozeUntil = defaults.double(forKey: heatSnoozeUntilKey)
         if snoozeUntil > now.timeIntervalSince1970 { return }
         let lastAlert = defaults.double(forKey: heatLastAlertKey)
@@ -588,8 +594,8 @@ final class GPUIService: NSObject, NSApplicationDelegate, UNUserNotificationCent
         case heatOpenAction, UNNotificationDefaultActionIdentifier:
             DispatchQueue.main.async { [weak self] in self?.showWorkloads(nil) }
         case heatSnoozeAction:
-            UserDefaults.standard.set(Date().addingTimeInterval(60 * 60).timeIntervalSince1970,
-                                      forKey: heatSnoozeUntilKey)
+            appDefaults.set(Date().addingTimeInterval(60 * 60).timeIntervalSince1970,
+                            forKey: heatSnoozeUntilKey)
         default:
             break
         }
@@ -606,7 +612,7 @@ final class GPUIService: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var iconPaths = [String: String]()
     private func withIcons(_ stats: [String: Any]) -> [String: Any] {
         var result = stats
-        let directory = BatteryHogConfiguration.live().dataDirectory.appendingPathComponent("icons")
+        let directory = BatteryHogConfiguration.live(bundle: hostBundle).dataDirectory.appendingPathComponent("icons")
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         result["processes"] = (stats["processes"] as? [[String: Any]] ?? []).enumerated().map { index, process in
             var process = process

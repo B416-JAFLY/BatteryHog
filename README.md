@@ -39,7 +39,7 @@ cargo test --locked --manifest-path gpui/Cargo.toml
 python3 -m unittest discover -s tests -p 'test_*.py'
 bash tests/run_native_tests.sh
 bash tests/run_localization_tests.sh
-BATTERY_HOG_TEST_SERVICE="$PWD/dist/gpui/Battery Hog GPUI.app/Contents/MacOS/batteryhog-service" \
+BATTERY_HOG_TEST_SERVICE="$PWD/dist/gpui/Battery Hog GPUI.app/Contents/Helpers/BatteryHogService.app/Contents/MacOS/batteryhog-service" \
   python3 -m unittest discover -s tests -p test_gpui_service.py
 ```
 

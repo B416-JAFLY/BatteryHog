@@ -14,7 +14,18 @@ enum Localization {
         return "en"
     }
 
-    static let currentLanguage = language(for: Locale.preferredLanguages)
+    static var preferredLanguages: [String] {
+        if let override = ProcessInfo.processInfo.environment["BATTERY_HOG_LANGUAGE"] {
+            return [override]
+        }
+        if let path = ProcessInfo.processInfo.environment["BATTERY_HOG_APP_BUNDLE"],
+           let identifier = Bundle(path: path)?.bundleIdentifier,
+           let languages = UserDefaults(suiteName: identifier)?.stringArray(forKey: "AppleLanguages") {
+            return languages
+        }
+        return Locale.preferredLanguages
+    }
+    static let currentLanguage = language(for: preferredLanguages)
     private enum Message: Decodable {
         case text(String)
         case plural([String: String])

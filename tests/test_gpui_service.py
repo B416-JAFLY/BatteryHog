@@ -20,7 +20,7 @@ class GPUIServiceTests(unittest.TestCase):
         self.process = subprocess.Popen(
             [os.environ['BATTERY_HOG_TEST_SERVICE'], '-AppleLanguages', '(en)'],
             stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
-            env={**os.environ, 'BATTERY_HOG_DATA_DIR': self.directory.name}, bufsize=0)
+            env={**os.environ, 'BATTERY_HOG_DATA_DIR': self.directory.name, 'BATTERY_HOG_APP_BUNDLE': str(Path(os.environ['BATTERY_HOG_TEST_SERVICE']).resolve().parents[5])}, bufsize=0)
         self.selector = selectors.DefaultSelector()
         self.selector.register(self.process.stdout, selectors.EVENT_READ)
         self.pending = b''
